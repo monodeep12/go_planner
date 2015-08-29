@@ -1,0 +1,30 @@
+{
+		"DelhiNCR": {
+			"captions":                     ["ASR130", "LFK130", "LPH130", "LWK130"],
+			"caption_names":                ["Axe Signature REV3 30 SEC NL", "Lady feeding kids", "Lady playing hide and seek", "Lady waking kids"],
+			"duration":                     ["30", "30", "30", "30"],
+			"rotates":                      ["4", "2", "2", "2"],
+			"min_rotates":                  ["0", "0", "0", "0"],
+			"max_rotates":                  ["4", "2", "2", "2"],
+			"ro":                           ["O", "S", "S", "S"],
+			"effective_rate":               ["820", "1530", "1530", "1530"],
+			"multiple_caption_combination": ["", "LPH130|LWK130", "LFK130|LWK130", "LFK130|LPH130"],
+			"back_to_back":                 ["0", "0", "0", "0"],
+			"back_to_back_min_duration":    ["0", "0", "0", "0"],
+			"back_to_back_max_rotates":     ["0", "0", "0", "0"]
+		},
+		"Mumbai": {
+			"captions":                     ["ASR130", "LFK130", "LPH130", "LWK130"],
+			"caption_names":                ["Axe Signature REV3 30 SEC NL", "Lady feeding kids", "Lady playing hide and seek", "Lady waking kids"],
+			"duration":                     ["30", "30", "30", "30"],
+			"rotates":                      ["4", "2", "2", "2"],
+			"min_rotates":                  ["0", "0", "0", "0"],
+			"max_rotates":                  ["4", "2", "2", "2"],
+			"ro":                           ["O", "S", "S", "S"],
+			"effective_rate":               ["820", "1530", "1530", "1530"],
+			"multiple_caption_combination": ["", "LPH130|LWK130", "LFK130|LWK130", "LFK130|LPH130"],
+			"back_to_back":                 ["0", "0", "0", "0"],
+			"back_to_back_min_duration":    ["0", "0", "0", "0"],
+			"back_to_back_max_rotates":     ["0", "0", "0", "0"]
+		}
+	}
