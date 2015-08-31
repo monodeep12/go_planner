@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"strconv"
 )
+
+var max_spot_length = flag.Int("s", 0, "max spot length")
 
 func flatten_rotates(rotates []string, max_rotates []string, back_to_back []string, back_to_back_max_rotates []string, back_to_back_min_duration []string, duration []string) [][]int {
 	flattened_rotates := [][]int{}
@@ -62,8 +65,71 @@ func flatten_rotates(rotates []string, max_rotates []string, back_to_back []stri
 	return flattened_rotates
 }
 
+// This function is a python implementation of itertools.product
+func cartesian_product(duration []string, args ...[]int) [][]int {
+
+	pools := args
+	npools := len(pools)
+	indices := make([]int, npools)
+
+	result := make([]int, npools)
+	/*
+		// This loop generates the first product(combination)
+		// Commented out because this  is  always 0 in our use case
+		for i := range result {
+			if len(pools[i]) == 0 {
+				return nil
+			}
+			result[i] = pools[i][0]
+		}
+		results := [][]int{result}*/
+
+	results := [][]int{}
+
+	for {
+		i := npools - 1
+		for ; i >= 0; i -= 1 {
+			pool := pools[i]
+			indices[i] += 1
+
+			if indices[i] == len(pool) {
+				indices[i] = 0
+				result[i] = pool[0]
+			} else {
+				result[i] = pool[indices[i]]
+				break
+			}
+
+		}
+
+		if i < 0 {
+			return results
+		}
+
+		temp_duration := 0
+		for idx, r := range result {
+			d, _ := strconv.Atoi(duration[idx])
+			temp_duration += r * d
+		}
+
+		if temp_duration <= *max_spot_length {
+			newresult := make([]int, npools)
+			copy(newresult, result)
+			//fmt.Println(newresult)
+			results = append(results, newresult)
+		}
+
+	}
+
+	return nil
+}
+
+func apply_multiple_caption_combination_constraint(flattened_combinations_pruned [][]int{}, captions []string, multiple_caption_combination []string) {
+
+}
+
 func main() {
-	var geo_list []string
+	flag.Parse()
 	// Reading input from file which would be provided by Rajesh"s API (node.js)
 	dat, _ := ioutil.ReadFile("input.txt")
 
@@ -76,8 +142,11 @@ func main() {
 
 	// Creating list of all the geos from the input data to maintain order
 	//(cannot loop over input_data as it is a hash map)
+	geo_list := make([]string, len(input_data))
+	i := 0
 	for k := range input_data {
-		geo_list = append(geo_list, k)
+		geo_list[i] = k
+		i++
 	}
 
 	for _, geo := range geo_list {
@@ -96,6 +165,7 @@ func main() {
 
 		// Step 1: Find all the possible ways a cation can be played
 		flattened_rotates := flatten_rotates(rotates, max_rotates, back_to_back, back_to_back_max_rotates, back_to_back_min_duration, duration)
-		fmt.Println(flattened_rotates)
+		flattened_combinations_pruned := cartesian_product(duration, flattened_rotates...)
+		fmt.Println(flattened_combinations_pruned)
 	}
 }
