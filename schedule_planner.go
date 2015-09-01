@@ -11,8 +11,15 @@ import (
 )
 
 var max_spot_length = flag.Int("s", 0, "max spot length")
+var skip = flag.Int("skip", 5, "skip")
+var sweep_duration_list = []int{}
+var best_combination_by_geo = [][]int{}
+var best_duration_by_geo = []int{}
+var best_revenue_by_geo = []int{}
 
-func flatten_rotates(rotates []string, max_rotates []string, back_to_back []string, back_to_back_max_rotates []string, back_to_back_min_duration []string, duration []string) [][]int {
+func flatten_rotates(rotates []string, max_rotates []string, back_to_back []string, back_to_back_max_rotates []string,
+	back_to_back_min_duration []string, duration []string) [][]int {
+
 	flattened_rotates := [][]int{}
 	for i, _ := range rotates {
 		temp_arr := []int{}
@@ -126,7 +133,8 @@ func cartesian_product(duration []string, args ...[]int) [][]int {
 	return nil
 }
 
-func apply_multiple_caption_combination_constraint(flattened_combinations_pruned [][]int, captions []string, multiple_caption_combination []string) [][]int {
+func apply_multiple_caption_combination_constraint(flattened_combinations_pruned [][]int, captions []string,
+	multiple_caption_combination []string) [][]int {
 	caption_dict := map[string]int{}
 	temp_slice := [][]int{}
 	final_slice := [][]int{}
@@ -159,6 +167,47 @@ func apply_multiple_caption_combination_constraint(flattened_combinations_pruned
 	return final_slice
 }
 
+func get_combinations_less_than_duration(final_combinations [][]int, duration []string, effective_rate []string, target int) ([][]int, []int, []int) {
+	filtered_combinations := [][]int{}
+	filtered_durations := []int{}
+	filtered_revenue := []int{}
+
+	for _, comb := range final_combinations {
+		temp_duration := 0
+		temp_revenue := 0
+		for idx, _ := range comb {
+			d, _ := strconv.Atoi(duration[idx])
+			e, _ := strconv.Atoi(effective_rate[idx])
+			temp_duration += comb[idx] * d
+			spot_effective_rate := d / 10 * e
+			temp_revenue += comb[idx] * spot_effective_rate
+		}
+
+		if temp_duration <= target {
+			filtered_combinations = append(filtered_combinations, comb)
+			filtered_durations = append(filtered_durations, temp_duration)
+			filtered_revenue = append(filtered_revenue, temp_revenue)
+		}
+	}
+	return filtered_combinations, filtered_durations, filtered_revenue
+}
+
+func get_backup_combination_for_geo(filtered_combinations [][]int, filtered_durations []int, filtered_revenue []int,
+	min_rotates_lst []string, geo string) ([][]int, []int, []int) {
+	if len(filtered_combinations) == 0 {
+		for i := 0; i <= len(min_rotates_lst); i++ {
+			best_combination_by_geo = append(best_combination_by_geo, 0)
+		}
+
+		best_duration_by_geo = append(best_duration_by_geo, 0)
+		best_revenue_by_geo = append(best_revenue_by_geo, 0)
+
+		return best_combination_by_geo, best_duration_by_geo, best_revenue_by_geo
+	} else {
+		weight := map[string]int{"margin": 1, "min": 100000}
+	}
+}
+
 func sliceInSlice(a []int, list [][]int) bool {
 	for _, b := range list {
 		/* To-Do: Check if looping through the slice and
@@ -174,7 +223,6 @@ func main() {
 	flag.Parse()
 	// Reading input from file which would be provided by Rajesh"s API (node.js)
 	dat, _ := ioutil.ReadFile("input.txt")
-
 	var input_data map[string]map[string][]string
 	err := json.Unmarshal(dat, &input_data)
 
@@ -191,6 +239,10 @@ func main() {
 		i++
 	}
 
+	for i := *skip; i <= *max_spot_length; i += *skip {
+		sweep_duration_list = append(sweep_duration_list, i)
+	}
+
 	for _, geo := range geo_list {
 		fmt.Println("Key:", geo, "Value:", input_data[geo]["caption_names"])
 
@@ -202,7 +254,7 @@ func main() {
 		back_to_back := input_data[geo]["back_to_back"]
 		back_to_back_max_rotates := input_data[geo]["back_to_back_max_rotates"]
 		multiple_caption_combination := input_data[geo]["multiple_caption_combination"]
-		// effective_rate := input_data[geo]["effective_rate"]
+		effective_rate := input_data[geo]["effective_rate"]
 		back_to_back_min_duration := input_data[geo]["back_to_back_min_duration"]
 
 		// Step 1: Find all the possible ways a cation can be played
@@ -211,5 +263,14 @@ func main() {
 		final_combinations := apply_multiple_caption_combination_constraint(flattened_combinations_pruned, captions, multiple_caption_combination)
 
 		fmt.Println(final_combinations)
+		for _, s := range sweep_duration_list {
+			best_combination_by_geo = best_combination_by_geo[:0]
+			best_duration_by_geo = best_duration_by_geo[:0]
+			best_revenue_by_geo = best_revenue_by_geo[:0]
+
+			filtered_combinations, filtered_durations, filtered_revenue := get_combinations_less_than_duration(final_combinations, duration, effective_rate, s)
+			fmt.Println(filtered_combinations, filtered_durations, filtered_revenue, s)
+		}
+
 	}
 }
