@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"reflect"
 	"strconv"
+	"strings"
 )
 
 var max_spot_length = flag.Int("s", 0, "max spot length")
@@ -124,8 +126,48 @@ func cartesian_product(duration []string, args ...[]int) [][]int {
 	return nil
 }
 
-func apply_multiple_caption_combination_constraint(flattened_combinations_pruned [][]int{}, captions []string, multiple_caption_combination []string) {
+func apply_multiple_caption_combination_constraint(flattened_combinations_pruned [][]int, captions []string, multiple_caption_combination []string) [][]int {
+	caption_dict := map[string]int{}
+	temp_slice := [][]int{}
+	final_slice := [][]int{}
+	for idx, c := range captions {
+		caption_dict[c] = idx
+	}
+	for _, comb := range flattened_combinations_pruned {
+		for idx_c, _ := range captions {
+			if multiple_caption_combination[idx_c] != "" {
+				captions_not_allowed := strings.Split(multiple_caption_combination[idx_c], "|")
+				if comb[idx_c] != 0 {
+					for _, j := range captions_not_allowed {
+						caption_index := caption_dict[j]
+						if comb[caption_index] != 0 {
+							temp_slice = append(temp_slice, comb)
+							break
+						}
+					}
 
+				}
+			}
+		}
+	}
+
+	for _, comb := range flattened_combinations_pruned {
+		if sliceInSlice(comb, temp_slice) == false {
+			final_slice = append(final_slice, comb)
+		}
+	}
+	return final_slice
+}
+
+func sliceInSlice(a []int, list [][]int) bool {
+	for _, b := range list {
+		/* To-Do: Check if looping through the slice and
+		comparing each element is  more performant than DeepEqual*/
+		if reflect.DeepEqual(a, b) {
+			return true
+		}
+	}
+	return false
 }
 
 func main() {
@@ -154,18 +196,20 @@ func main() {
 
 		duration := input_data[geo]["duration"]
 		rotates := input_data[geo]["rotates"]
-		// captions := input_data[geo]["captions"]
+		captions := input_data[geo]["captions"]
 		// min_rotates := input_data[geo]["min_rotates"]
 		max_rotates := input_data[geo]["max_rotates"]
 		back_to_back := input_data[geo]["back_to_back"]
 		back_to_back_max_rotates := input_data[geo]["back_to_back_max_rotates"]
-		// multiple_caption_combination := input_data[geo]["multiple_caption_combination"]
+		multiple_caption_combination := input_data[geo]["multiple_caption_combination"]
 		// effective_rate := input_data[geo]["effective_rate"]
 		back_to_back_min_duration := input_data[geo]["back_to_back_min_duration"]
 
 		// Step 1: Find all the possible ways a cation can be played
 		flattened_rotates := flatten_rotates(rotates, max_rotates, back_to_back, back_to_back_max_rotates, back_to_back_min_duration, duration)
 		flattened_combinations_pruned := cartesian_product(duration, flattened_rotates...)
-		fmt.Println(flattened_combinations_pruned)
+		final_combinations := apply_multiple_caption_combination_constraint(flattened_combinations_pruned, captions, multiple_caption_combination)
+
+		fmt.Println(final_combinations)
 	}
 }
