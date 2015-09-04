@@ -8,14 +8,24 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
+var input_data map[string]map[string][]string
+var geo_list []string
 var max_spot_length = flag.Int("s", 0, "max spot length")
+var average_cost_per_10_sec = 13000
 var skip = flag.Int("skip", 5, "skip")
 var sweep_duration_list = []int{}
 var best_combination_by_geo = [][]int{}
 var best_duration_by_geo = []int{}
 var best_revenue_by_geo = []int{}
+var wg sync.WaitGroup
+var before_pruning = 0
+var after_pruning = 0
+var sum_branch_num = 0
+var branch_func_counter = 0
+var maxbranch = 0
 
 func flatten_rotates(rotates []string, max_rotates []string, back_to_back []string, back_to_back_max_rotates []string,
 	back_to_back_min_duration []string, duration []string) [][]int {
@@ -196,7 +206,8 @@ func get_backup_combination_for_geo(filtered_combinations [][]int, filtered_dura
 	min_rotates_lst []string, geo string) ([][]int, []int, []int) {
 	if len(filtered_combinations) == 0 {
 		for i := 0; i <= len(min_rotates_lst); i++ {
-			best_combination_by_geo = append(best_combination_by_geo, 0)
+			temp_lst := []int{0}
+			best_combination_by_geo = append(best_combination_by_geo, temp_lst)
 		}
 
 		best_duration_by_geo = append(best_duration_by_geo, 0)
@@ -205,25 +216,433 @@ func get_backup_combination_for_geo(filtered_combinations [][]int, filtered_dura
 		return best_combination_by_geo, best_duration_by_geo, best_revenue_by_geo
 	} else {
 		weight := map[string]int{"margin": 1, "min": 100000}
+		min_rotates := []int{}
+		if len(min_rotates_lst) == 0 {
+			weight["min"] = 0
+			for i := 0; i <= len(filtered_combinations[0]); i++ {
+				min_rotates = append(min_rotates, 0)
+			}
+		} else {
+			for _, k := range min_rotates_lst {
+				x, _ := strconv.Atoi(k)
+				if x <= 0 {
+					min_rotates = append(min_rotates, 0)
+				} else {
+					min_rotates = append(min_rotates, 1)
+				}
+			}
+		}
+
+		min_duration_profit_slice := []int{}
+		weighted_profit_slice := []int{}
+
+		for comb_idx, comb := range filtered_combinations {
+			min_duration_profit := 0
+			for idx, c := range comb {
+				d, _ := strconv.Atoi(input_data[geo]["duration"][idx])
+				min_duration_profit += min_rotates[idx] * d * c
+			}
+			min_duration_profit_slice = append(min_duration_profit_slice, min_duration_profit)
+			weighted_profit_slice = append(weighted_profit_slice, filtered_revenue[comb_idx]*weight["margin"]+min_duration_profit*weight["min"])
+		}
+		best_combination_index, _ := max_in_slice_int(weighted_profit_slice)
+		best_combination := filtered_combinations[best_combination_index]
+		best_combination_by_geo = append(best_combination_by_geo, best_combination)
+		best_duration_by_geo = append(best_duration_by_geo, filtered_durations[best_combination_index])
+		best_revenue_by_geo = append(best_revenue_by_geo, filtered_revenue[best_combination_index])
+		return best_combination_by_geo, best_duration_by_geo, best_revenue_by_geo
 	}
 }
 
-func sliceInSlice(a []int, list [][]int) bool {
-	for _, b := range list {
-		/* To-Do: Check if looping through the slice and
-		comparing each element is  more performant than DeepEqual*/
-		if reflect.DeepEqual(a, b) {
+func max_in_slice_int(a []int) (int, int) {
+	max := a[0]
+	index := 0
+	for i, v := range a {
+		if v > max {
+			max = v
+			index = i
+		}
+	}
+	return index, max
+}
+
+func min_in_slice_int(a []int) (int, int) {
+	min := a[0]
+	index := 0
+	for i, v := range a {
+		if v < min {
+			min = v
+			index = i
+		}
+	}
+	return index, min
+}
+
+func sliceInSlice(a interface{}, list interface{}) bool {
+	s := reflect.ValueOf(list)
+	for i := 0; i < s.Len(); i++ {
+		if reflect.DeepEqual(a, s.Index(i).Interface()) {
 			return true
 		}
 	}
+
 	return false
+}
+
+func sum_elements_in_slice(a []int) int {
+	sum := 0
+	for _, v := range a {
+		sum += v
+	}
+	return sum
+}
+
+func count_elements_in_slice(a []int, b int) int {
+	count := 0
+	for _, v := range a {
+		if v == b {
+			count += 1
+		}
+	}
+	return count
+}
+
+func schedule_planner(check bool, combination_tuple_key [][]int, combination_tuple_value []int, args map[string][][]string) {
+	// clearing slices
+	best_combination_by_geo = best_combination_by_geo[:0]
+	best_duration_by_geo = best_duration_by_geo[:0]
+	best_revenue_by_geo = best_revenue_by_geo[:0]
+
+	sweeps_10_to_60_combinations := make([][][]int, len(sweep_duration_list))
+	sweeps_10_to_60_durations := make([][]int, len(sweep_duration_list))
+	sweeps_10_to_60_revenue := make([][]int, len(sweep_duration_list))
+	sweeps_10_to_60_margin := make([][]int, len(sweep_duration_list))
+
+	var sweeps_10_to_60_combinations_chan chan [][][]int = make(chan [][][]int)
+	var sweeps_10_to_60_durations_chan chan [][]int = make(chan [][]int)
+	var sweeps_10_to_60_revenue_chan chan [][]int = make(chan [][]int)
+
+	duration_list := [][]string{}
+	rotates_list := [][]string{}
+	captions_list := [][]string{}
+	min_rotates_list := [][]string{}
+	max_rotates_list := [][]string{}
+	back_to_back_list := [][]string{}
+	back_to_back_max_rotates_list := [][]string{}
+	multiple_caption_combination_list := [][]string{}
+	effective_rate_list := [][]string{}
+	back_to_back_min_duration_list := [][]string{}
+
+	duration := []string{}
+	rotates := []string{}
+	captions := []string{}
+	min_rotates := []string{}
+	max_rotates := []string{}
+	back_to_back := []string{}
+	back_to_back_max_rotates := []string{}
+	multiple_caption_combination := []string{}
+	effective_rate := []string{}
+	back_to_back_min_duration := []string{}
+
+	for idx, geo := range geo_list {
+		if check {
+			fmt.Println("Key:", geo, "Value:", input_data[geo]["caption_names"])
+			duration = input_data[geo]["duration"]
+			rotates = input_data[geo]["rotates"]
+			captions = input_data[geo]["captions"]
+			min_rotates = input_data[geo]["min_rotates"]
+			max_rotates = input_data[geo]["max_rotates"]
+			back_to_back = input_data[geo]["back_to_back"]
+			back_to_back_max_rotates = input_data[geo]["back_to_back_max_rotates"]
+			multiple_caption_combination = input_data[geo]["multiple_caption_combination"]
+			effective_rate = input_data[geo]["effective_rate"]
+			back_to_back_min_duration = input_data[geo]["back_to_back_min_duration"]
+
+			duration_list = append(duration_list, duration)
+			rotates_list = append(rotates_list, rotates)
+			captions_list = append(captions_list, rotates)
+			min_rotates_list = append(min_rotates_list, rotates)
+			max_rotates_list = append(max_rotates_list, rotates)
+			back_to_back_list = append(back_to_back_list, rotates)
+			back_to_back_max_rotates_list = append(back_to_back_max_rotates_list, rotates)
+			multiple_caption_combination_list = append(multiple_caption_combination_list, rotates)
+			effective_rate_list = append(effective_rate_list, rotates)
+			back_to_back_min_duration_list = append(back_to_back_min_duration_list, rotates)
+		} else {
+			duration = args["duration_list"][idx]
+			rotates = args["rotates_list"][idx]
+			captions = args["captions_list"][idx]
+			min_rotates = args["min_rotates_list"][idx]
+			max_rotates = args["max_rotates_list"][idx]
+			back_to_back = args["back_to_back_list"][idx]
+			back_to_back_max_rotates = args["back_to_back_max_rotates_list"][idx]
+			multiple_caption_combination = args["multiple_caption_combination_list"][idx]
+			effective_rate = args["effective_rate_list"][idx]
+			back_to_back_min_duration = args["back_to_back_min_duration_list"][idx]
+		}
+
+		// Step 1: Find all the possible ways a cation can be played
+		flattened_rotates := flatten_rotates(rotates, max_rotates, back_to_back, back_to_back_max_rotates, back_to_back_min_duration, duration)
+		flattened_combinations_pruned := cartesian_product(duration, flattened_rotates...)
+		final_combinations := apply_multiple_caption_combination_constraint(flattened_combinations_pruned, captions, multiple_caption_combination)
+
+		wg.Add(1)
+		go generate_sweeps(sweeps_10_to_60_combinations_chan, sweeps_10_to_60_durations_chan, sweeps_10_to_60_revenue_chan, final_combinations, duration, effective_rate, min_rotates, geo, sweeps_10_to_60_combinations, sweeps_10_to_60_durations, sweeps_10_to_60_revenue)
+		sweeps_10_to_60_combinations = <-sweeps_10_to_60_combinations_chan
+		sweeps_10_to_60_durations = <-sweeps_10_to_60_durations_chan
+		sweeps_10_to_60_revenue = <-sweeps_10_to_60_revenue_chan
+	}
+	fmt.Println("Test--> ", sweeps_10_to_60_combinations)
+	fmt.Println("Test--> ", sweeps_10_to_60_durations)
+	fmt.Println("Test--> ", sweeps_10_to_60_revenue)
+
+	if check {
+		create_tree(sweeps_10_to_60_combinations, sweeps_10_to_60_durations, sweeps_10_to_60_revenue, sweeps_10_to_60_margin)
+	} else {
+
+	}
+}
+
+func generate_sweeps(c chan [][][]int, d chan [][]int, e chan [][]int, final_combinations [][]int, duration []string, effective_rate []string, min_rotates []string, geo string, sweeps_10_to_60_combinations [][][]int, sweeps_10_to_60_durations [][]int, sweeps_10_to_60_revenue [][]int) {
+	defer wg.Done()
+
+	for idx_s, s := range sweep_duration_list {
+		// Increment the WaitGroup counter.
+		wg.Add(1)
+		go func(idx_s int, s int) {
+			defer wg.Done()
+
+			// clearing slices
+			best_combination_by_geo = best_combination_by_geo[:0]
+			best_duration_by_geo = best_duration_by_geo[:0]
+			best_revenue_by_geo = best_revenue_by_geo[:0]
+
+			filtered_combinations, filtered_durations, filtered_revenue := get_combinations_less_than_duration(final_combinations, duration, effective_rate, s)
+			r_combinations, r_durations, r_revenue := get_backup_combination_for_geo(filtered_combinations, filtered_durations, filtered_revenue, min_rotates, geo)
+			sweeps_10_to_60_combinations[idx_s] = append(sweeps_10_to_60_combinations[idx_s], r_combinations[0])
+			// fmt.Println(idx_s, s, r_combinations[0])
+			sweeps_10_to_60_durations[idx_s] = append(sweeps_10_to_60_durations[idx_s], r_durations[0])
+			sweeps_10_to_60_revenue[idx_s] = append(sweeps_10_to_60_revenue[idx_s], r_revenue[0])
+		}(idx_s, s)
+	}
+	c <- sweeps_10_to_60_combinations
+	d <- sweeps_10_to_60_durations
+	e <- sweeps_10_to_60_revenue
+}
+
+func get_min_duration_across_geos() int {
+	duration_list := []int{}
+	rotates_list := []int{}
+	final_duration := []int{}
+
+	for _, geo := range geo_list {
+		for i, v := range input_data[geo]["duration"] {
+			duration_list = append(duration_list, v)
+			rotates_list = append(rotates_list, input_data[geo]["rotates"][i])
+		}
+
+		for i, v := range rotates_list {
+			if v != 0 {
+				final_duration = append(final_duration, duration_list[i])
+			}
+		}
+		_, min_duration := min_in_slice_int(final_duration)
+	}
+	return min_duration
+}
+
+func create_tree(sweeps_10_to_60_combinations [][][]int, sweeps_10_to_60_durations [][]int, sweeps_10_to_60_revenue [][]int,
+	sweeps_10_to_60_margin [][]int, combination_tuple_key [][]int, combination_tuple_value []int, args map[string][][]string) {
+
+	min_duration := get_min_duration_across_geos()
+	min_duration_index := 0
+	for i, _ := range sweeps_10_to_60_revenue {
+		sweeps_10_to_60_revenue[i] = sum_elements_in_slice(sweeps_10_to_60_revenue[i])
+		sweeps_10_to_60_durations[i] = sum_elements_in_slice(sweeps_10_to_60_durations[i])
+		sweeps_10_to_60_margin[i] = sweeps_10_to_60_revenue[i] - ((sweep_duration_list[i] / 10.0) * average_cost_per_10_sec)
+	}
+
+	for i, duration := range sweep_duration_list {
+		if duration < min_duration {
+			min_duration_index = i
+			break
+		}
+	}
+	sum_of_combination := 0
+	for idx, comb := range sweeps_10_to_60_combinations {
+		s := []int{}
+		for _, c := range comb {
+			s = append(s, sum_elements_in_slice(c))
+		}
+		sum_of_combination = sum_elements_in_slice(s)
+		flag := false
+		for idx_c, caption_combination := range comb {
+			for idx_r, rotates := range caption_combination {
+				a, _ := strconv.Atoi(args["min_rotates_list"][idx_c][idx_r])
+				if a > 0 && rotates > 0 {
+					flag = true
+					break
+				}
+			}
+			if flag {
+				break
+			}
+		}
+		if flag == false {
+			sweeps_10_to_60_margin[idx] = -9999999
+		}
+		if sum_of_combination == 0 {
+			sweeps_10_to_60_margin[idx] = -9999999
+		}
+	}
+	max_margin_index, max_margin := max_in_slice_int(sweeps_10_to_60_margin[min_duration_index:])
+	max_margin_combination := sweeps_10_to_60_combinations[max_margin_index]
+	combination_index := max_margin_index
+	spot_length := sweep_duration_list[max_margin_index]
+	revenue := sweeps_10_to_60_revenue[max_margin_index]
+
+	sweeps_to_be_pruned := sweeps_10_to_60_combinations[combination_index:]
+	duration_to_be_pruned := sweeps_10_to_60_durations[combination_index:]
+	margin_to_be_pruned := sweeps_10_to_60_margin[combination_index:]
+	before_pruning += len(sweeps_to_be_pruned)
+	negative_unique_non_zero_combinations, negative_unique_non_zero_duration, negative_unique_non_zero_margin := prune_sweeps(sweeps_to_be_pruned, duration_to_be_pruned, margin_to_be_pruned, args)
+	after_pruning += len(negative_unique_non_zero_combinations)
+	sum_branch_num += len(negative_unique_non_zero_combinations)
+	branch_func_counter += 1
+	if len(negative_unique_non_zero_combinations) > maxbranch {
+		maxbranch = len(negative_unique_non_zero_combinations)
+	}
+
+	if len(negative_unique_non_zero_combinations) > 0 {
+		for idx, combination := range negative_unique_non_zero_combinations {
+			rotates_list_deep := Copy(rotates_list)
+			min_rotates_list_deep := Copy(min_rotates_list)
+			max_rotates_list_deep := Copy(max_rotates_list)
+			min_equals_max := true
+		}
+	} else {
+		fmt.Println("In Else Else")
+	}
+}
+
+func prune_sweeps(sweeps_to_be_pruned [][][]int, duration_to_be_pruned []int, margin_to_be_pruned []int, args map[string][][]string) ([][][]int, []int, []int) {
+	negative_unique_non_zero_combinations := [][][]int{}
+	negative_unique_non_zero_duration := []int{}
+	negative_unique_non_zero_margin := []int{}
+	negative_unique_non_zero_combinations_temp := [][][]int{}
+	negative_unique_non_zero_duration_temp := []int{}
+	negative_unique_non_zero_margin_temp := []int{}
+	negative_unique_non_zero_min_constraint_duration := []int{}
+	sweeps_satisfying_min_temp := [][][]int{}
+	margin_satisfying_min_temp := []int{}
+	duration_satisfying_min_temp := []int{}
+
+	for s_index, sweep := range sweeps_to_be_pruned {
+		for geo_index, geo := range sweep {
+			sweep_added_flag := false
+			for r_index, rotate := range geo {
+				a, _ := strconv.Atoi(args["min_rotates_list"][geo_index][r_index])
+				if rotate >= 1 && a >= 1 {
+					sweeps_satisfying_min_temp = append(sweeps_satisfying_min_temp, sweep)
+					margin_satisfying_min_temp = append(margin_satisfying_min_temp, margin_to_be_pruned[s_index])
+					duration_satisfying_min_temp = append(duration_satisfying_min_temp, duration_to_be_pruned[s_index])
+					sweep_added_flag = true
+					break
+				}
+			}
+			if sweep_added_flag {
+				break
+			}
+		}
+	}
+	sweeps_to_be_pruned = sweeps_satisfying_min_temp
+	duration_to_be_pruned = duration_satisfying_min_temp
+	margin_to_be_pruned = margin_satisfying_min_temp
+	best_case_min_constraint_index, _ := max_in_slice_int(margin_to_be_pruned)
+
+	best_case_min_constraint_duration := 0
+	for geo_index, geo := range sweeps_to_be_pruned[best_case_min_constraint_index] {
+		for r_index, rotates := range geo {
+			a, _ := strconv.Atoi(args["min_rotates_list"][geo_index][r_index])
+			b, _ := strconv.Atoi(args["duration_list"][geo_index][r_index])
+			if a > 0 && rotates > 0 {
+				best_case_min_constraint_duration += b * rotates
+			}
+		}
+	}
+
+	for x, _ := range sweeps_to_be_pruned {
+		combination_min_constraint_duration := 0
+		combination := sweeps_to_be_pruned[x]
+		duration := duration_to_be_pruned[x]
+		revenue := margin_to_be_pruned[x]
+		s := []int{}
+		for _, v := range combination {
+			s = append(s, sum_elements_in_slice(v))
+		}
+		sum_of_combination := sum_elements_in_slice(s)
+		if sum_of_combination > 0 {
+			helps_meet_min_constraint := false
+			for idx, caption_combination := range combination {
+				for idx_r, rotates := range caption_combination {
+					a, _ := strconv.Atoi(args["min_rotates_list"][idx][idx_r])
+					b, _ := strconv.Atoi(args["duration_list"][idx][idx_r])
+					if a > 0 && rotates > 0 {
+						helps_meet_min_constraint = true
+						combination_min_constraint_duration += b * rotates
+					}
+				}
+			}
+
+			if helps_meet_min_constraint && combination_min_constraint_duration >= best_case_min_constraint_duration {
+				negative_unique_non_zero_combinations_temp = append(negative_unique_non_zero_combinations_temp, combination)
+				negative_unique_non_zero_duration_temp = append(negative_unique_non_zero_duration_temp, duration)
+				negative_unique_non_zero_margin_temp = append(negative_unique_non_zero_margin_temp, revenue)
+				negative_unique_non_zero_min_constraint_duration = append(negative_unique_non_zero_min_constraint_duration, combination_min_constraint_duration)
+			}
+
+			for idx, duration := range negative_unique_non_zero_min_constraint_duration {
+				if count_elements_in_slice(negative_unique_non_zero_min_constraint_duration, duration) > 1 {
+					max_margin := negative_unique_non_zero_margin_temp[idx]
+					max_index := idx
+					for idx_m, duration_m := range negative_unique_non_zero_min_constraint_duration {
+						current_max_margin := negative_unique_non_zero_margin_temp[idx_m]
+						if duration == duration_m && current_max_margin > max_margin {
+							max_margin = current_max_margin
+							max_index = idx_m
+						}
+					}
+
+					selected_combination := negative_unique_non_zero_combinations_temp[max_index]
+					selected_duration := negative_unique_non_zero_duration_temp[max_index]
+					selected_margin := negative_unique_non_zero_margin_temp[max_index]
+					if sliceInSlice(selected_combination, negative_unique_non_zero_combinations) == false {
+						negative_unique_non_zero_combination = append(negative_unique_non_zero_combination, selected_combination)
+						negative_unique_non_zero_duration = append(negative_unique_non_zero_duration, selected_duration)
+						negative_unique_non_zero_margin = append(negative_unique_non_zero_margin, selected_margin)
+					}
+				} else {
+					selected_combination := negative_unique_non_zero_combinations_temp[idx]
+					selected_duration := negative_unique_non_zero_duration_temp[idx]
+					selected_margin := negative_unique_non_zero_margin_temp[idx]
+					if sliceInSlice(selected_combination, negative_unique_non_zero_combinations) == false {
+						negative_unique_non_zero_combination = append(negative_unique_non_zero_combination, selected_combination)
+						negative_unique_non_zero_duration = append(negative_unique_non_zero_duration, selected_duration)
+						negative_unique_non_zero_margin = append(negative_unique_non_zero_margin, selected_margin)
+					}
+				}
+			}
+		}
+	}
+	return negative_unique_non_zero_combinations, negative_unique_non_zero_duration, negative_unique_non_zero_margin
 }
 
 func main() {
 	flag.Parse()
+
 	// Reading input from file which would be provided by Rajesh"s API (node.js)
 	dat, _ := ioutil.ReadFile("input.txt")
-	var input_data map[string]map[string][]string
+
 	err := json.Unmarshal(dat, &input_data)
 
 	if err != nil {
@@ -232,7 +651,7 @@ func main() {
 
 	// Creating list of all the geos from the input data to maintain order
 	//(cannot loop over input_data as it is a hash map)
-	geo_list := make([]string, len(input_data))
+	geo_list = make([]string, len(input_data))
 	i := 0
 	for k := range input_data {
 		geo_list[i] = k
@@ -243,34 +662,10 @@ func main() {
 		sweep_duration_list = append(sweep_duration_list, i)
 	}
 
-	for _, geo := range geo_list {
-		fmt.Println("Key:", geo, "Value:", input_data[geo]["caption_names"])
-
-		duration := input_data[geo]["duration"]
-		rotates := input_data[geo]["rotates"]
-		captions := input_data[geo]["captions"]
-		// min_rotates := input_data[geo]["min_rotates"]
-		max_rotates := input_data[geo]["max_rotates"]
-		back_to_back := input_data[geo]["back_to_back"]
-		back_to_back_max_rotates := input_data[geo]["back_to_back_max_rotates"]
-		multiple_caption_combination := input_data[geo]["multiple_caption_combination"]
-		effective_rate := input_data[geo]["effective_rate"]
-		back_to_back_min_duration := input_data[geo]["back_to_back_min_duration"]
-
-		// Step 1: Find all the possible ways a cation can be played
-		flattened_rotates := flatten_rotates(rotates, max_rotates, back_to_back, back_to_back_max_rotates, back_to_back_min_duration, duration)
-		flattened_combinations_pruned := cartesian_product(duration, flattened_rotates...)
-		final_combinations := apply_multiple_caption_combination_constraint(flattened_combinations_pruned, captions, multiple_caption_combination)
-
-		fmt.Println(final_combinations)
-		for _, s := range sweep_duration_list {
-			best_combination_by_geo = best_combination_by_geo[:0]
-			best_duration_by_geo = best_duration_by_geo[:0]
-			best_revenue_by_geo = best_revenue_by_geo[:0]
-
-			filtered_combinations, filtered_durations, filtered_revenue := get_combinations_less_than_duration(final_combinations, duration, effective_rate, s)
-			fmt.Println(filtered_combinations, filtered_durations, filtered_revenue, s)
-		}
-
-	}
+	args := map[string][][]string{}
+	check := true
+	combination_tuple_key := [][]int{}
+	combination_tuple_value := []int{}
+	schedule_planner(check, combination_tuple_key, combination_tuple_value, args)
+	wg.Wait()
 }
