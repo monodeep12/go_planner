@@ -307,7 +307,7 @@ func count_elements_in_slice(a []int, b int) int {
 	return count
 }
 
-func schedule_planner(check bool, combination_tuple_key [][]int, combination_tuple_value []int, args map[string][][]string) {
+func schedule_planner(check bool, combination_tuple_key [][][]int, combination_tuple_value []int, args map[string][][]string) {
 	// clearing slices
 	best_combination_by_geo = best_combination_by_geo[:0]
 	best_duration_by_geo = best_duration_by_geo[:0]
@@ -322,16 +322,16 @@ func schedule_planner(check bool, combination_tuple_key [][]int, combination_tup
 	var sweeps_10_to_60_durations_chan chan [][]int = make(chan [][]int)
 	var sweeps_10_to_60_revenue_chan chan [][]int = make(chan [][]int)
 
-	duration_list := [][]string{}
-	rotates_list := [][]string{}
-	captions_list := [][]string{}
-	min_rotates_list := [][]string{}
-	max_rotates_list := [][]string{}
-	back_to_back_list := [][]string{}
-	back_to_back_max_rotates_list := [][]string{}
-	multiple_caption_combination_list := [][]string{}
-	effective_rate_list := [][]string{}
-	back_to_back_min_duration_list := [][]string{}
+	// duration_list := [][]string{}
+	// rotates_list := [][]string{}
+	// captions_list := [][]string{}
+	// min_rotates_list := [][]string{}
+	// max_rotates_list := [][]string{}
+	// back_to_back_list := [][]string{}
+	// back_to_back_max_rotates_list := [][]string{}
+	// multiple_caption_combination_list := [][]string{}
+	// effective_rate_list := [][]string{}
+	// back_to_back_min_duration_list := [][]string{}
 
 	duration := []string{}
 	rotates := []string{}
@@ -358,16 +358,16 @@ func schedule_planner(check bool, combination_tuple_key [][]int, combination_tup
 			effective_rate = input_data[geo]["effective_rate"]
 			back_to_back_min_duration = input_data[geo]["back_to_back_min_duration"]
 
-			duration_list = append(duration_list, duration)
-			rotates_list = append(rotates_list, rotates)
-			captions_list = append(captions_list, rotates)
-			min_rotates_list = append(min_rotates_list, rotates)
-			max_rotates_list = append(max_rotates_list, rotates)
-			back_to_back_list = append(back_to_back_list, rotates)
-			back_to_back_max_rotates_list = append(back_to_back_max_rotates_list, rotates)
-			multiple_caption_combination_list = append(multiple_caption_combination_list, rotates)
-			effective_rate_list = append(effective_rate_list, rotates)
-			back_to_back_min_duration_list = append(back_to_back_min_duration_list, rotates)
+			args["duration_list"] = append(args["duration_list"], duration)
+			args["rotates_list"] = append(args["rotates_list"], rotates)
+			args["captions_list"] = append(args["captions_list"], rotates)
+			args["min_rotates_list"] = append(args["min_rotates_list"], rotates)
+			args["max_rotates_list"] = append(args["max_rotates_list"], rotates)
+			args["back_to_back_list"] = append(args["back_to_back_list"], rotates)
+			args["back_to_back_max_rotates_list"] = append(args["back_to_back_max_rotates_list"], rotates)
+			args["multiple_caption_combination_list"] = append(args["multiple_caption_combination_list"], rotates)
+			args["effective_rate_list"] = append(args["effective_rate_list"], rotates)
+			args["back_to_back_min_duration_list"] = append(args["back_to_back_min_duration_list"], rotates)
 		} else {
 			duration = args["duration_list"][idx]
 			rotates = args["rotates_list"][idx]
@@ -397,7 +397,8 @@ func schedule_planner(check bool, combination_tuple_key [][]int, combination_tup
 	fmt.Println("Test--> ", sweeps_10_to_60_revenue)
 
 	if check {
-		create_tree(sweeps_10_to_60_combinations, sweeps_10_to_60_durations, sweeps_10_to_60_revenue, sweeps_10_to_60_margin)
+		fmt.Println("Test--> ", sweeps_10_to_60_revenue)
+		create_tree(sweeps_10_to_60_combinations, sweeps_10_to_60_durations, sweeps_10_to_60_revenue, sweeps_10_to_60_margin, combination_tuple_key, combination_tuple_value, args)
 	} else {
 
 	}
@@ -434,11 +435,13 @@ func get_min_duration_across_geos() int {
 	duration_list := []int{}
 	rotates_list := []int{}
 	final_duration := []int{}
-
+	var min_duration int
 	for _, geo := range geo_list {
 		for i, v := range input_data[geo]["duration"] {
-			duration_list = append(duration_list, v)
-			rotates_list = append(rotates_list, input_data[geo]["rotates"][i])
+			v_int, _ := strconv.Atoi(v)
+			r_int, _ := strconv.Atoi(input_data[geo]["rotates"][i])
+			duration_list = append(duration_list, v_int)
+			rotates_list = append(rotates_list, r_int)
 		}
 
 		for i, v := range rotates_list {
@@ -446,20 +449,38 @@ func get_min_duration_across_geos() int {
 				final_duration = append(final_duration, duration_list[i])
 			}
 		}
-		_, min_duration := min_in_slice_int(final_duration)
+		_, min_duration = min_in_slice_int(final_duration)
 	}
 	return min_duration
 }
 
+func deep_copy_args_map(a map[string][][]string) map[string][][]string {
+	b := map[string][][]string{}
+	for k, v := range a {
+		switch reflect.ValueOf(v).Kind() {
+		case reflect.Slice:
+			val := make([][]string, len(v))
+			copy(val, v)
+			b[k] = val
+		default:
+			b[k] = v
+		}
+	}
+	return b
+}
+
 func create_tree(sweeps_10_to_60_combinations [][][]int, sweeps_10_to_60_durations [][]int, sweeps_10_to_60_revenue [][]int,
-	sweeps_10_to_60_margin [][]int, combination_tuple_key [][]int, combination_tuple_value []int, args map[string][][]string) {
+	sweeps_10_to_60_margin [][]int, combination_tuple_key [][][]int, combination_tuple_value []int, args map[string][][]string) {
 
 	min_duration := get_min_duration_across_geos()
+	sweeps_10_to_60_revenue_temp := make([]int, len(sweeps_10_to_60_revenue))
+	sweeps_10_to_60_durations_temp := make([]int, len(sweeps_10_to_60_durations))
+	sweeps_10_to_60_margin_temp := make([]int, len(sweeps_10_to_60_margin))
 	min_duration_index := 0
 	for i, _ := range sweeps_10_to_60_revenue {
-		sweeps_10_to_60_revenue[i] = sum_elements_in_slice(sweeps_10_to_60_revenue[i])
-		sweeps_10_to_60_durations[i] = sum_elements_in_slice(sweeps_10_to_60_durations[i])
-		sweeps_10_to_60_margin[i] = sweeps_10_to_60_revenue[i] - ((sweep_duration_list[i] / 10.0) * average_cost_per_10_sec)
+		sweeps_10_to_60_revenue_temp[i] = sum_elements_in_slice(sweeps_10_to_60_revenue[i])
+		sweeps_10_to_60_durations_temp[i] = sum_elements_in_slice(sweeps_10_to_60_durations[i])
+		sweeps_10_to_60_margin_temp[i] = sweeps_10_to_60_revenue_temp[i] - ((sweep_duration_list[i] / 10.0) * average_cost_per_10_sec)
 	}
 
 	for i, duration := range sweep_duration_list {
@@ -489,23 +510,20 @@ func create_tree(sweeps_10_to_60_combinations [][][]int, sweeps_10_to_60_duratio
 			}
 		}
 		if flag == false {
-			sweeps_10_to_60_margin[idx] = -9999999
+			sweeps_10_to_60_margin_temp[idx] = -9999999
 		}
 		if sum_of_combination == 0 {
-			sweeps_10_to_60_margin[idx] = -9999999
+			sweeps_10_to_60_margin_temp[idx] = -9999999
 		}
 	}
-	max_margin_index, max_margin := max_in_slice_int(sweeps_10_to_60_margin[min_duration_index:])
-	max_margin_combination := sweeps_10_to_60_combinations[max_margin_index]
+	max_margin_index, _ := max_in_slice_int(sweeps_10_to_60_margin_temp[min_duration_index:])
 	combination_index := max_margin_index
-	spot_length := sweep_duration_list[max_margin_index]
-	revenue := sweeps_10_to_60_revenue[max_margin_index]
 
 	sweeps_to_be_pruned := sweeps_10_to_60_combinations[combination_index:]
-	duration_to_be_pruned := sweeps_10_to_60_durations[combination_index:]
-	margin_to_be_pruned := sweeps_10_to_60_margin[combination_index:]
+	duration_to_be_pruned := sweeps_10_to_60_durations_temp[combination_index:]
+	margin_to_be_pruned := sweeps_10_to_60_margin_temp[combination_index:]
 	before_pruning += len(sweeps_to_be_pruned)
-	negative_unique_non_zero_combinations, negative_unique_non_zero_duration, negative_unique_non_zero_margin := prune_sweeps(sweeps_to_be_pruned, duration_to_be_pruned, margin_to_be_pruned, args)
+	negative_unique_non_zero_combinations, _, negative_unique_non_zero_margin := prune_sweeps(sweeps_to_be_pruned, duration_to_be_pruned, margin_to_be_pruned, args)
 	after_pruning += len(negative_unique_non_zero_combinations)
 	sum_branch_num += len(negative_unique_non_zero_combinations)
 	branch_func_counter += 1
@@ -514,11 +532,43 @@ func create_tree(sweeps_10_to_60_combinations [][][]int, sweeps_10_to_60_duratio
 	}
 
 	if len(negative_unique_non_zero_combinations) > 0 {
-		for idx, combination := range negative_unique_non_zero_combinations {
-			rotates_list_deep := Copy(rotates_list)
-			min_rotates_list_deep := Copy(min_rotates_list)
-			max_rotates_list_deep := Copy(max_rotates_list)
+		for idx_c, combination := range negative_unique_non_zero_combinations {
+			args_deep := deep_copy_args_map(args)
 			min_equals_max := true
+
+			for geo_index, _ := range geo_list {
+				for idx, rotates := range args_deep["rotates_list"][geo_index] {
+					p, _ := strconv.Atoi(rotates)
+					q, _ := strconv.Atoi(args_deep["min_rotates_list"][geo_index][idx])
+					r, _ := strconv.Atoi(args_deep["max_rotates_list"][geo_index][idx])
+
+					args_deep["rotates_list"][geo_index][idx] = strconv.Itoa(p - combination[geo_index][idx])
+					args_deep["min_rotates_list"][geo_index][idx] = strconv.Itoa(q - combination[geo_index][idx])
+					args_deep["max_rotates_list"][geo_index][idx] = strconv.Itoa(r - combination[geo_index][idx])
+				}
+			}
+
+			for geo_index, _ := range geo_list {
+				for i, _ := range args_deep["rotates_list"][geo_index] {
+					m, _ := strconv.Atoi(args_deep["min_rotates_list"][geo_index][i])
+					if m > 0 {
+						min_equals_max = false
+						break
+					}
+				}
+
+				if !min_equals_max {
+					break
+				}
+			}
+
+			if !min_equals_max {
+				combination_tuple_key = append(combination_tuple_key, combination)
+				combination_tuple_value = append(combination_tuple_value, negative_unique_non_zero_margin[idx_c])
+				schedule_planner(false, combination_tuple_key, combination_tuple_value, args_deep)
+			} else {
+				fmt.Println(combination_tuple_key)
+			}
 		}
 	} else {
 		fmt.Println("In Else Else")
@@ -617,7 +667,7 @@ func prune_sweeps(sweeps_to_be_pruned [][][]int, duration_to_be_pruned []int, ma
 					selected_duration := negative_unique_non_zero_duration_temp[max_index]
 					selected_margin := negative_unique_non_zero_margin_temp[max_index]
 					if sliceInSlice(selected_combination, negative_unique_non_zero_combinations) == false {
-						negative_unique_non_zero_combination = append(negative_unique_non_zero_combination, selected_combination)
+						negative_unique_non_zero_combinations = append(negative_unique_non_zero_combinations, selected_combination)
 						negative_unique_non_zero_duration = append(negative_unique_non_zero_duration, selected_duration)
 						negative_unique_non_zero_margin = append(negative_unique_non_zero_margin, selected_margin)
 					}
@@ -626,7 +676,7 @@ func prune_sweeps(sweeps_to_be_pruned [][][]int, duration_to_be_pruned []int, ma
 					selected_duration := negative_unique_non_zero_duration_temp[idx]
 					selected_margin := negative_unique_non_zero_margin_temp[idx]
 					if sliceInSlice(selected_combination, negative_unique_non_zero_combinations) == false {
-						negative_unique_non_zero_combination = append(negative_unique_non_zero_combination, selected_combination)
+						negative_unique_non_zero_combinations = append(negative_unique_non_zero_combinations, selected_combination)
 						negative_unique_non_zero_duration = append(negative_unique_non_zero_duration, selected_duration)
 						negative_unique_non_zero_margin = append(negative_unique_non_zero_margin, selected_margin)
 					}
@@ -664,7 +714,7 @@ func main() {
 
 	args := map[string][][]string{}
 	check := true
-	combination_tuple_key := [][]int{}
+	combination_tuple_key := [][][]int{}
 	combination_tuple_value := []int{}
 	schedule_planner(check, combination_tuple_key, combination_tuple_value, args)
 	wg.Wait()
